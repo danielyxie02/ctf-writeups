@@ -68,7 +68,7 @@ This is based on the assumption that ```pool[0] = 2``` since there are 2 operand
 
 ```pool[0] = pool[0] {operation} pool[1]```
 
-The program mistakenly sees ```pool[0]``` as the left operand and ```pool[1]``` as the right operand, and the result is stored in ```pool[0]```. The implication of this is an arbitrary write, since we've demonstrated that we have control over ```pool[0]```, and the ```eval()``` function writes to a (stack) destination that is referenced by ```pool[0]```. So, if we wanted to write something 40 bytes above ```pool```, we would send an expression like ```+9+1```
+The program mistakenly sees ```pool[0]``` as the left operand and ```pool[1]``` as the right operand, and the result is stored in ```pool[0]```. The implication of this is an arbitrary write, since we've demonstrated that we have control over ```pool[0]```, and the ```eval()``` function writes to a (stack) destination that is referenced by ```pool[0]```. So, if we wanted to write outside the pool, we could use an expression like ```+9+1```.
 
 This is the expression ```+9+1``` in action: 
 Initially,
@@ -99,6 +99,8 @@ pool[1] = 1
 pool[2] = 0
 ```
 Now, the program executes the addtion operation, but the result is stored in ```pool[9]```! 
+
+In general, we can modify a stack address offset from ```pool``` with the expression ```+{offset from pool}+{some value}```. It also turns out that not choosing to modify it, i.e. an expression like ```+{offset}```, will leak the value at the specified offset. 
 ## Crafting the exploit
 We have write and read control over anything on the stack above ```pool```, and since ```pool``` is initialized in ```calc()```, we should have control over the return address of ```calc()```, opening up a ROP exploit. Using ROPgadget, we can find the addresses we need to load on the stack for a ROP chain that gives us a shell. 
 
