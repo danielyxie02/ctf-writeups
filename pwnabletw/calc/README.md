@@ -12,10 +12,46 @@ An infinite loop in ```calc()``` runs as long as the user is using the calculato
 
 1, 2, and 4 are pretty self-explanatory and secure, so there's no need to look deeper into them. 
 
-### Looking closer at ```parse_expr()```
-Let's consider a simple expression like "1+1". The function iterates through every character of the expression. When it hits an operation, in this case ```+```, the program stops and does some calculations (don't worry about PEMDAS, it more or less tries its best to cover it). 
+### The ```parse_expr()``` function
+There's a small region in memory responsible for storing information related to the expression, let's call it ```pool```. Normally:
+- ```pool[0]``` stores the number of operands (hopefully, it's 2)
+- ```pool[1]``` stores the left operand AND (later) the result of the operation
+- ```pool[2]``` stores the right operand
 
-todo: some more explanation abt the pool + other stuff, ghidra takes too much battery and im at 11%
+Let's run through an example expression ```2*5+1```.
+Initially: 
+```
+pool[0] = 1
+pool[1] = 0
+pool[2] = 0
+```
+The program loops through every character of the expression. When it hits an operation, it'll stop and do a calculation. In this case, the first operation is multiplication, and the state of the pool changes as follows: 
+```
+//storing the operands
+pool[0] = 2
+pool[1] = 2 //left operand
+pool[2] = 5 //right operand
+```
+```
+//after an eval():
+pool[0] = 2
+pool[1] = 10
+pool[2] = 5
+```
+The next operation is addition:
+```
+//storing the operands (pool[1] remains unchanged)
+pool[0] = 2
+pool[1] = 10
+pool[2] = 1
+```
+```
+//after an eval():
+pool[0] = 2
+pool[1] = 11 <-- the final result
+pool[2] = 1
+```
+Next, let's take a look at what's actually happening when we evaluate an expression, and how we can exploit it. 
 #### The ```eval()``` function
 
 This function takes two arguments:
@@ -28,10 +64,44 @@ Here's what the function does:
 
 where the operation is +, -, \*, or /.
 
-This is, of course, based on the assumption that ```pool[0] = 2```, so ```pool[1]``` is the left operand and ```pool[2]``` is the right operand, and that's where the vulnerability is. By entering an expression with no left operand, e.g. ```+10000```, ```pool[0]``` has a value of 1, not 2. As a result, this operation is performed:
+This is based on the assumption that ```pool[0] = 2``` since there are 2 operands, so when evaluating an expression ```pool[1]``` is the left operand, ```pool[2]``` is the right operand, and the result is stored in ```pool[1]```. This is where the vulnerability is. By entering an expression with no left operand, like```+10000```, ```pool[0]``` has a value of 1, not 2, since there's only 1 operand. This is because ```pool[0]``` is actually initialized to 1, and the program adds 1 to it when it sees a left operand to get the normal value of 2. As a result, this operation is performed:
 
 ```pool[0] = pool[0] {operation} pool[1]```
 
-Since we can enter any number as ```pool[1]```, we have control over ```pool[0]``` by the statement above. Then, control over ```pool[0]``` gives us control over ```pool[n]```, giving us an arbitrary write. 
+The program mistakenly sees ```pool[0]``` as the left operand and ```pool[1]``` as the right operand, and the result is stored in ```pool[0]```. The implication of this is an arbitrary write, since we've demonstrated that we have control over ```pool[0]```, and the ```eval()``` function writes to a (stack) destination that is referenced by ```pool[0]```. So, if we wanted to write something 40 bytes above ```pool```, we would send an expression like ```+9+1```
 
-This vulnerability also gives us a leak, since ```parse_expr``` prints the result of the operation by printing ```pool[0]```. 
+This is the expression ```+9+1``` in action: 
+Initially,
+```
+pool[0] = 1 
+pool[1] = 0 
+pool[2] = 0
+```
+The program encounters the first addition operation, and ```eval()```s accordingly:
+```
+//storing the operands
+pool[0] = 1 //left operand - oops!
+pool[1] = 9 //right operand
+pool[2] = 0
+```
+After addtion: 
+```
+//after addition
+pool[0] = 10
+pool[1] = 9 
+pool[2] = 0
+```
+The program now hits the second addtion operation. Here, there are actually two operands, so it's "normal," but ```pool[0]``` is unchanged from the previous hack:
+```
+//storing the operands
+pool[0] = 10 
+pool[1] = 1 
+pool[2] = 0
+```
+Now, the program executes the addtion operation, but the result is stored in ```pool[9]```! 
+## Crafting the exploit
+We have write and read control over anything on the stack above ```pool```, and since ```pool``` is initialized in ```calc()```, we should have control over the return address of ```calc()```, opening up a ROP exploit. Using ROPgadget, we can find the addresses we need to load on the stack for a ROP chain that gives us a shell. 
+
+However, we don't have "complete" write control; we can only modify values that are already on the stack (i.e. through addition or subtraction operations). So, we have to first leak the value that we want to write to, then add or subtract accordingly. 
+
+
